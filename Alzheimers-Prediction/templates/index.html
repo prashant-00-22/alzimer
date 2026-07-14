@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alzheimer's Disease Predictor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); overflow: hidden; }
+        header { background: linear-gradient(135deg, #ff6b6b, #feca57); color: white; padding: 30px; text-align: center; }
+        h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .subtitle { font-size: 1.2em; opacity: 0.9; }
+        main { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; padding: 40px; }
+        .inputs { background: #f8f9fa; padding: 30px; border-radius: 15px; }
+        .results { background: #e3f2fd; padding: 30px; border-radius: 15px; }
+        label { display: block; margin-bottom: 15px; font-weight: bold; color: #333; }
+        input[type="range"] { width: 100%; height: 8px; border-radius: 5px; background: #ddd; outline: none; -webkit-appearance: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 25px; height: 25px; border-radius: 50%; background: #667eea; cursor: pointer; }
+        input[type="range"]::-moz-range-thumb { width: 25px; height: 25px; border-radius: 50%; background: #667eea; cursor: pointer; border: none; }
+        .checkbox-group { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+        button { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 15px 30px; font-size: 1.1em; border-radius: 10px; cursor: pointer; width: 100%; margin-top: 20px; transition: transform 0.2s; }
+        button:hover { transform: translateY(-2px); }
+        button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .metric { text-align: center; margin: 20px 0; }
+        .metric-value { font-size: 3em; font-weight: bold; color: #ff6b6b; }
+        .metric-label { font-size: 1.2em; color: #666; }
+        #chart-container { height: 300px; margin-top: 20px; }
+        .risk-high { background: #ffebee !important; }
+        .risk-low { background: #e8f5e8 !important; }
+        @media (max-width: 768px) { main { grid-template-columns: 1fr; gap: 20px; } }
+        .caption { font-size: 0.9em; color: #888; text-align: center; margin-top: 20px; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧠 Alzheimer's Disease Predictor</h1>
+            <p class="subtitle">Enter patient info for AD risk (GradientBoosting ~90% acc on ADNI-like data)</p>
+        </header>
+        <main>
+            <section class="inputs">
+                <h2>Patient Information</h2>
+                <label>Gender:
+                    <input type="radio" id="female" name="gender" value="false" checked>
+                    <label for="female">Female</label>
+                    <input type="radio" id="male" name="gender" value="true">
+                    <label for="male">Male</label>
+                </label>
+                <label>Race: White <input type="checkbox" id="raceWhite" checked></label>
+                <label>Years of Education: <span id="eduValue">16</span>
+                    <input type="range" id="education" min="6" max="20" value="16" step="1">
+                </label>
+                <label>APOE4 Genotype: <span id="apoeValue">0</span>
+                    <input type="range" id="apoe4" min="0" max="2" value="0" step="1">
+                </label>
+                <button id="predictBtn">🔮 Predict AD Risk</button>
+            </section>
+            <section class="results" id="results" style="display:none;">
+                <h2>Prediction Results</h2>
+                <div class="metric">
+                    <div class="metric-value" id="probValue">--</div>
+                    <div class="metric-label">AD Probability</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-value" id="riskValue">--</div>
+                    <div class="metric-label">Risk Level</div>
+                </div>
+                <div id="chart-container">
+                    <canvas id="importanceChart"></canvas>
+                </div>
+            </section>
+        </main>
+        <p class="caption">Demo using 4 key features. Age slider omitted (not in model).</p>
+    </div>
+
+    <script>
+        // UI Updates
+        document.getElementById('education').addEventListener('input', (e) => {
+            document.getElementById('eduValue').textContent = e.target.value;
+        });
+        document.getElementById('apoe4').addEventListener('input', (e) => {
+            document.getElementById('apoeValue').textContent = e.target.value;
+        });
+
+        let chart = null;
+        document.getElementById('predictBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('predictBtn');
+            btn.disabled = true;
+            btn.textContent = 'Predicting...';
+
+            const genderMale = document.querySelector('input[name="gender"]:checked').value === 'true';
+            const raceWhite = document.getElementById('raceWhite').checked;
+            const education = parseFloat(document.getElementById('education').value);
+            const apoe4 = parseInt(document.getElementById('apoe4').value);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({genderMale, raceWhite, education, apoe4})
+                });
+                const data = await response.json();
+
+                document.getElementById('probValue').textContent = (data.probability * 100).toFixed(1) + '%';
+                document.getElementById('riskValue').textContent = data.riskLevel;
+                const results = document.getElementById('results');
+                results.className = 'results ' + (data.probability > 0.1 ? 'risk-high' : 'risk-low');
+
+                // Update chart
+                const ctx = document.getElementById('importanceChart').getContext('2d');
+                if (chart) chart.destroy();
+                chart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.features,
+                        datasets: [{ label: 'Importance', data: data.featureImportance, backgroundColor: 'rgba(102, 126, 234, 0.7)' }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: { x: { beginAtZero: true } }
+                    }
+                });
+
+                results.style.display = 'block';
+                results.scrollIntoView({ behavior: 'smooth' });
+            } catch (error) {
+                alert('Prediction error: ' + error.message);
+            }
+
+            btn.disabled = false;
+            btn.textContent = '🔮 Predict AD Risk';
+        });
+    </script>
+</body>
+</html>
